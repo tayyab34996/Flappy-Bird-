@@ -1,0 +1,1182 @@
+     1                                  [org 0x0100]
+     2 00000000 B81300                   mov ax, 0x0013 
+     3 00000003 CD10                     int 0x10 
+     4 00000005 B800A0                   mov ax, 0xA000 
+     5 00000008 8EC0                     mov es, ax 
+     6 0000000A E96F07                       jmp start
+     7 0000000D 457869743F2028792F-     exit_msg: db 'Exit? (y/n)', 0  ;
+     7 00000016 6E2900             
+     8 00000019 47616D6520456E6465-     game_ended_msg: db 'Game Ended. Press Key', 0
+     8 00000022 642E20507265737320-
+     8 0000002B 4B657900           
+     9 0000002F 0000                    a_keeper: dw 0
+    10 00000031 0000                    rect_mov_count: dw 0
+    11 00000033 020A0C1C22              green_shades db 2, 10, 12, 28, 34 
+    12 00000038 0000                    upperPillarHeight dw 0 
+    13 0000003A 0000                    lowerPillarHeight dw 0 
+    14 0000003C 0000                    bird_bottom_corner: dw 0
+    15 0000003E 0000                    bird_bottom_corner_end: dw 0
+    16 00000040 0000                    bird_top_corner: dw 0
+    17 00000042 CC79                    bird_pos: dw 31180
+    18 00000044 3F01CB01                pipesX: dw 319, 459
+    19 00000048 14001400                pipesY: dw 20 , 20
+    20 0000004C 0000                    leftOverPipeWidth: dw 0
+    21 0000004E 0000                    leftOverPipeY: dw 0
+    22 00000050 0000                    boolDrawBottomPipe: dw 0
+    23 00000052 0000                    intBottomPipeStart: dw 0
+    24 00000054 0000                    intPipeEndX: dw 0
+    25 00000056 0000                    collision_detected: dw 0
+    26 00000058 0000                    boolAdjusted: dw 0
+    27 0000005A 0000                    boolFirstPipe: dw 0
+    28 0000005C 0000                    isAnimating: dw 0
+    29 0000005E 44                      BirdDirection: db 'D'
+    30 0000005F 0000                    bird_position_holder: dw 0
+    31 00000061 0000                    score :dw 0
+    32 00000063 0000                    game_end: dw 0
+    33 00000065 0000                    tickcount: dw 0
+    34 00000067 00000000                old_timer:dw 0,0
+    35 0000006B 00000000                oldtimer : dw 0, 0
+    36 0000006F 4006                    delay_threshold dw 1600   
+    37 00000071 00                      timer_hooked db 0    
+    38 00000072 00                      is_flapping :db 0  
+    39 00000073 0000                    upper_pillar_helper: dw 0
+    40 00000075 466C61707079204269-     GameTitle: db 'Flappy Bird', 0
+    40 0000007E 726400             
+    41 00000081 507265737320555020-     Instructions: db 'Press UP ARROW to move up,ESC to quit', 0
+    41 0000008A 4152524F5720746F20-
+    41 00000093 6D6F76652075702C45-
+    41 0000009C 534320746F20717569-
+    41 000000A5 7400               
+    42 000000A7 496620455343206973-     Instructions1: db 'If ESC is pressed, game stops', 0
+    42 000000B0 20707265737365642C-
+    42 000000B9 2067616D652073746F-
+    42 000000C2 707300             
+    43 000000C5 496620792069732070-     Instructions2: db 'If y is pressed, it exits', 0
+    43 000000CE 7265737365642C2069-
+    43 000000D7 7420657869747300   
+    44 000000DF 656C73652069742063-     Instructions3: db 'else it continues from where it stops', 0
+    44 000000E8 6F6E74696E75657320-
+    44 000000F1 66726F6D2077686572-
+    44 000000FA 652069742073746F70-
+    44 00000103 7300               
+    45 00000105 507265737320616E79-     StartMessage: db 'Press any key to start...', 0
+    45 0000010E 206B657920746F2073-
+    45 00000117 746172742E2E2E00   
+    46 0000011F 53636F72653A2000        cscore: db 'Score: ' ,0
+    47 00000127 B41F2F15970A            notes: dw 0x1FB4, 0x152F, 0x0A97  ; Frequencies for D3, A3, and A4
+    48 0000012D F401F401F401            durations: dw 500, 500, 500         ; Durations in milliseconds
+    49 00000133 0300                    note_count: dw 3                    ; Number of notes
+    50 00000135 0000                    current_note: dw 0                  ; Index of the current note
+    51                                  ; pcb: times *2 dw 0 ; Allocate space for 2 tasks (game + music)
+    52                                  
+    53 00000137 000000000000000000-     pcb: dw 0, 0, 0, 0, 0 ; task0 regs[cs:pcb + 0]
+    53 00000140 00                 
+    54 00000141 000000000000000000-     dw 0, 0, 0, 0, 0 ;
+    54 0000014A 00                 
+    55 0000014B 00                      current: db 0
+    56                                  background:
+    57 0000014C 0E                          push cs         ; Save code segment (CS) to stack
+    58 0000014D 1F                          pop ds          ; Set data segment (DS) to CS
+    59 0000014E 06                          push es         ; Save extra segment (ES) to stack
+    60 0000014F 31FF                        xor di, di      ; Clear DI (set to 0)
+    61 00000151 B900FA                      mov cx, 320 * 200  ; Set loop counter (fills entire screen)
+    62 00000154 B002                        mov al, 2       ; Set color value (2) for filling
+    63 00000156 F3AA                        rep stosb       ; Fill screen with color 2
+    64 00000158 07                          pop es          ; Restore extra segment (ES)
+    65 00000159 C3                          ret             ; Return from procedure
+    66                                  
+    67                                  DisplayIntroduction:
+    68 0000015A 0E                          push cs         ; Save code segment (CS) to stack
+    69 0000015B 1F                          pop ds          ; Set data segment (DS) to CS
+    70 0000015C 06                          push es         ; Save extra segment (ES) to stack
+    71 0000015D E8ECFF                      call background ; Call the background procedure
+    72                                  
+    73 00000160 B607                        mov dh, 7       ; Set row position (7)
+    74 00000162 B203                        mov dl, 3       ; Set column position (3)
+    75 00000164 BE[7500]                    mov si, GameTitle ; Load address of GameTitle string
+    76 00000167 E81200                      call PrintStringAtPosition ; Print game title at (7,3)
+    77                                  
+    78 0000016A B60F                        mov dh, 15      ; Set row position (15)
+    79 0000016C BE[8100]                    mov si, Instructions ; Load address of Instructions string
+    80 0000016F E80A00                      call PrintStringAtPosition ; Print instructions at row 15
+    81                                  
+    82 00000172 B611                        mov dh, 17      ; Set row position (17)
+    83 00000174 BE[0501]                    mov si, StartMessage ; Load address of StartMessage string
+    84 00000177 E80200                      call PrintStringAtPosition ; Print start message at row 17
+    85                                  
+    86 0000017A 07                          pop es          ; Restore extra segment (ES)
+    87 0000017B C3                          ret             ; Return from procedure
+    88                                  
+    89                                  
+    90                                  PrintStringAtPosition:
+    91 0000017C 0E                          push cs         ; Save code segment (CS) to stack
+    92 0000017D 1F                          pop ds          ; Set data segment (DS) to CS
+    93 0000017E 06                          push es         ; Save extra segment (ES) to stack
+    94 0000017F 60                          pusha           ; Save all registers to stack
+    95                                  
+    96 00000180 B402                        mov ah, 02h     ; BIOS function to set cursor position
+    97 00000182 CD10                        int 10h         ; Call interrupt 10h to move cursor
+    98                                  
+    99 00000184 B40E                        mov ah, 0Eh     ; BIOS function for teletype output (prints a character)
+   100 00000186 B700                        mov bh, 0       ; Page number (usually 0)
+   101 00000188 B30F                        mov bl, 15      ; Text color (white)
+   102                                  
+   103                                  print_position_loop:
+   104 0000018A AC                          lodsb           ; Load next character from SI into AL
+   105 0000018B 3C00                        cmp al, 0       ; Check if null terminator (end of string)
+   106 0000018D 7404                        je done_position_print ; If null, exit loop
+   107 0000018F CD10                        int 10h         ; Print character in AL using teletype mode
+   108 00000191 EBF7                        jmp print_position_loop ; Repeat for next character
+   109                                  
+   110                                  done_position_print:
+   111 00000193 61                          popa            ; Restore all registers from stack
+   112 00000194 07                          pop es          ; Restore extra segment (ES)
+   113 00000195 C3                          ret             ; Return from procedure
+   114                                  
+   115                                  collision:
+   116 00000196 FA                          cli                ; Disable interrupts (not necessary here but might be used for consistency)
+   117 00000197 0E                          push cs 
+   118 00000198 1F                          pop ds            ; Set DS to code segment (CS)
+   119 00000199 60                          pusha             ; Save all registers to stack
+   120                                  
+   121 0000019A 813E[4200]9600              cmp word [bird_pos], 150  ; Check if bird's position is greater than 150
+   122 000001A0 7708                        ja next_check            ; If above 150, continue checking
+   123 000001A2 C706[5600]0100              mov word [collision_detected], 1  ; If not, set collision flag
+   124 000001A8 EB14                        jmp get_out              ; Jump to exit
+   125                                  
+   126                                  next_check:
+   127 000001AA 8B3E[3E00]                  mov di, word [bird_bottom_corner_end] ; Load bird's bottom corner position
+   128 000001AE 81C74001                    add di, 320          ; Move down one row in video memory
+   129 000001B2 81FF00E1                    cmp di, 57600        ; Check if it exceeds screen boundary
+   130 000001B6 7206                        jb get_out           ; If within bounds, exit
+   131 000001B8 C706[5600]0100              mov word [collision_detected], 1  ; Otherwise, set collision flag
+   132                                  
+   133                                  get_out: 
+   134 000001BE 61                          popa                 ; Restore all registers
+   135 000001BF C3                          ret                  ; Return from procedure
+   136                                  
+   137                                  ShowExitConfirmation:
+   138 000001C0 0E                          push cs 
+   139 000001C1 1F                          pop ds               ; Set DS to CS
+   140                                  
+   141 000001C2 B402                        mov ah, 02h          ; Set cursor position function
+   142 000001C4 B700                        mov bh, 0            ; Page number (0)
+   143 000001C6 B618                        mov dh, 24           ; Row position
+   144 000001C8 B20F                        mov dl, 15           ; Column position
+   145 000001CA CD10                        int 10h              ; Call BIOS interrupt
+   146                                  
+   147 000001CC B40E                        mov ah, 0Eh          ; BIOS teletype function (prints a character)
+   148 000001CE B700                        mov bh, 0            ; Page number
+   149 000001D0 B302                        mov bl, 2            ; Text color (green)
+   150 000001D2 BE[0D00]                    mov si, exit_msg     ; Load address of exit message
+   151                                  
+   152                                  print_message_text:
+   153 000001D5 AC                          lodsb                ; Load next character from SI into AL
+   154 000001D6 3C00                        cmp al, 0            ; Check for null terminator (end of string)
+   155 000001D8 7404                        je wait_for_key1     ; If null, wait for user input
+   156 000001DA CD10                        int 10h              ; Print character
+   157 000001DC EBF7                        jmp print_message_text ; Repeat for next character
+   158                                  
+   159                                  wait_for_key1:
+   160 000001DE B400                        mov ah, 0            ; BIOS keyboard input function
+   161 000001E0 CD16                        int 16h              ; Wait for key press
+   162 000001E2 3C79                        cmp al, 'y'          ; Check if 'y'
+   163 000001E4 741C                        je exit_game         ; If yes, exit game
+   164 000001E6 3C59                        cmp al, 'Y'          ; Check if 'Y'
+   165 000001E8 7418                        je exit_game         ; If yes, exit game
+   166                                  
+   167                                  end_erase:
+   168 000001EA BB0A00                      mov bx, 10           ; Number of lines to erase
+   169 000001ED BFF8ED                      mov di, 60920        ; Starting position in video memory
+   170                                  
+   171                                  exit_loop:
+   172 000001F0 B95800                      mov cx, 88           ; Number of pixels per line
+   173 000001F3 B006                        mov al, 6            ; Background color
+   174 000001F5 F3AA                        rep stosb            ; Fill line with color
+   175 000001F7 4B                          dec bx               ; Decrease line count
+   176 000001F8 81C7E800                    add di, 232          ; Move to the next line in memory
+   177 000001FC 83FB00                      cmp bx, 0            ; Check if all lines are erased
+   178 000001FF 75EF                        jne exit_loop        ; If not, continue loop
+   179                                  
+   180 00000201 C3                          ret                  ; Return from procedure
+   181                                  
+   182                                  exit_game:  
+   183 00000202 C706[6300]0100          mov word[game_end],1
+   184                                  
+   185 00000208 B0FD                        mov al, 11111101b    
+   186 0000020A E461                        in  al, 61h          
+   187 0000020C 24FC                        and al, 11111100b    
+   188 0000020E E661                        out 61h, al          
+   189 00000210 B0B6                        mov al, 10110110b    
+   190 00000212 E643                        out 43h, al          
+   191 00000214 B000                        mov al, 0            
+   192 00000216 E642                        out 42h, al          
+   193 00000218 B000                    	 mov al, 0           
+   194 0000021A E642                        out 42h, al          
+   195                                      ; Wait for a keypress
+   196                                  wait_for_key:
+   197 0000021C B400                        mov ah, 0                      ; BIOS keyboard function
+   198 0000021E CD16                        int 16h                        ; Wait for key
+   199                                  
+   200                                      ; Clear the stack and prepare for a clean exit
+   201                                  reset_stack:
+   202 00000220 FA                          cli                            ; Disable interrupts
+   203 00000221 31C0                        xor ax, ax                     ; AX = 0
+   204 00000223 8ED0                        mov ss, ax                     ; Reset stack segment to 0
+   205 00000225 BCFEFF                      mov sp, 0xFFFE                 ; Set stack pointer to a safe high value
+   206 00000228 FB                          sti                            ; Re-enable interrupts
+   207                                  
+   208                                      ; Restore video mode to text mode 03h (80x25 color text)
+   209 00000229 B80300                      mov ax, 0x0003                 ; Set video mode 03h
+   210 0000022C CD10                        int 0x10                       ; Call BIOS to restore text mode
+   211                                  
+   212                                      ; Forcefully restore all critical interrupt vectors
+   213 0000022E 31C0                        xor ax, ax                     ; AX = 0
+   214 00000230 8EC0                        mov es, ax                     ; ES = 0 (interrupt vector table segment)
+   215 00000232 A1[6B00]                mov ax,[oldtimer]
+   216 00000235 8B1E[6D00]              mov bx,[oldtimer+2]
+   217 00000239 26A32000                     mov word [es:8*4],ax 
+   218 0000023D 26891E2200                   mov [es:8*4+2], bx
+   219 00000242 B400                        mov ah, 0                      ; BIOS keyboard function
+   220 00000244 CD16                        int 16h                        ; Clear buffer with wait
+   221 00000246 B401                        mov ah, 1
+   222 00000248 CD16                        int 16h                        ; Test for a keypress
+   223 0000024A 7406                        jz no_more_keys
+   224                                  clear_keys:
+   225 0000024C B400                        mov ah, 0
+   226 0000024E CD16                        int 16h                        ; Read and discard key
+   227 00000250 EB00                        jmp no_more_keys
+   228                                  no_more_keys:
+   229                                  
+   230 00000252 B020                        mov al, 20h                    ; End-of-Interrupt command
+   231 00000254 E620                        out 20h, al                    ; Send to PIC
+   232 00000256 B9FFFF                      mov cx, 0FFFFh                 ; Arbitrary delay
+   233                                  delay_loop:
+   234 00000259 E2FE                        loop delay_loop
+   235 0000025B E97705                  jmp ll2
+   236                                      ; Terminate program and return to DOS
+   237 0000025E B8004C                      mov ax, 0x4C00                 ; DOS terminate program function
+   238 00000261 CD21                        int 0x21                       ; Exit program and return to DOS
+   239                                  
+   240                                  
+   241                                  
+   242                                  upper_part:
+   243 00000263 0E                          push cs 
+   244 00000264 1F                          pop ds          ; Set DS to CS
+   245 00000265 06                          push es         ; Save extra segment (ES) to stack
+   246                                  
+   247 00000266 31FF                        xor di, di      ; Set DI to 0 (starting memory position)
+   248 00000268 B035                        mov al, 35h     ; Color value (hex 35)
+   249 0000026A B9004B                      mov cx, 320 * 60 ; Number of pixels to fill (upper part)
+   250 0000026D F3AA                        rep stosb       ; Fill memory with the color
+   251                                  
+   252 0000026F 07                          pop es          ; Restore ES
+   253 00000270 C3                          ret            ; Return from procedure
+   254                                  
+   255                                  medium_part:
+   256 00000271 0E                          push cs 
+   257 00000272 1F                          pop ds          ; Set DS to CS
+   258 00000273 06                          push es         ; Save ES to stack
+   259                                  
+   260 00000274 BF004B                      mov di, 320 * 60 ; Start at row 60
+   261 00000277 B035                        mov al, 35h     ; Color value (hex 35)
+   262 00000279 B96054                      mov cx, 360 * 60 ; Number of pixels to fill (middle part)
+   263 0000027C F3AA                        rep stosb       ; Fill memory with the color
+   264                                  
+   265 0000027E 07                          pop es          ; Restore ES
+   266 0000027F C3                          ret             ; Return from procedure
+   267                                  
+   268                                  lower_part:
+   269 00000280 0E                          push cs 
+   270 00000281 1F                          pop ds          ; Set DS to CS
+   271 00000282 06                          push es         ; Save ES to stack
+   272                                  
+   273 00000283 BF0096                      mov di, 320 * 120 ; Start at row 120
+   274 00000286 B035                        mov al, 35h     ; Color value (hex 35)
+   275 00000288 B90064                      mov cx, 320 * 80 ; Number of pixels to fill (lower part)
+   276 0000028B F3AA                        rep stosb       ; Fill memory with the color
+   277                                  
+   278 0000028D 07                          pop es          ; Restore ES
+   279 0000028E C3                          ret             ; Return from procedure
+   280                                  sscore:
+   281 0000028F 0E                          push cs 
+   282 00000290 1F                          pop ds          ; Set DS to CS
+   283 00000291 06                          push es         ; Save ES to stack
+   284 00000292 60                          pusha           ; Save all registers
+   285                                  
+   286 00000293 BE[1F01]                    mov si, cscore  ; Load address of score string
+   287 00000296 B402                        mov ah, 02h     ; BIOS function to set cursor position
+   288 00000298 B700                        mov bh, 0       ; Page number
+   289 0000029A B618                        mov dh, 24      ; Row position
+   290 0000029C B201                        mov dl, 1       ; Column position
+   291 0000029E CD10                        int 10h         ; Call BIOS interrupt to move cursor
+   292                                  
+   293 000002A0 B40E                        mov ah, 0Eh     ; BIOS teletype function (prints a character)
+   294 000002A2 B700                        mov bh, 0       ; Page number
+   295 000002A4 B30F                        mov bl, 15      ; Text color (white)
+   296                                  
+   297                                  print_scoer:
+   298 000002A6 AC                          lodsb           ; Load next character from SI into AL
+   299 000002A7 3C00                        cmp al, 0       ; Check for null terminator (end of string)
+   300 000002A9 7404                        je done_        ; If null, exit loop
+   301 000002AB CD10                        int 10h         ; Print character
+   302 000002AD EBF7                        jmp print_scoer ; Repeat for next character
+   303                                  
+   304                                  done_:
+   305 000002AF 61                          popa            ; Restore all registers
+   306 000002B0 07                          pop es          ; Restore ES
+   307 000002B1 C3                          ret             ; Return from procedure
+   308                                  
+   309                                  cal_dig:
+   310 000002B2 E8DAFF                      call sscore     ; Call the function to display the score
+   311                                  
+   312 000002B5 0E                          push cs 
+   313 000002B6 1F                          pop ds          ; Set DS to CS
+   314 000002B7 06                          push es         ; Save ES to stack
+   315                                  
+   316 000002B8 A1[6100]                    mov ax, [score] ; Load score value into AX
+   317 000002BB 3DE803                      cmp ax, 1000    ; Check if score is 1000
+   318 000002BE 7402                        je movv         ; If equal, jump to movv
+   319 000002C0 7503                        jne movv1       ; Otherwise, jump to movv1
+   320                                  
+   321                                  movv:
+   322 000002C2 B80000                      mov ax, 0       ; Reset score to 0 if it reaches 1000
+   323                                  
+   324                                  movv1:
+   325 000002C5 31C9                        xor cx, cx      ; Clear CX (digit counter)
+   326 000002C7 BB0A00                      mov bx, 10      ; Set base 10 for division
+   327                                  
+   328                                  store_digits:
+   329 000002CA 0E                          push cs 
+   330 000002CB 1F                          pop ds          ; Set DS to CS
+   331 000002CC 31D2                        xor dx, dx      ; Clear DX before division
+   332 000002CE F7F3                        div bx          ; Divide AX by 10 (remainder in DX)
+   333 000002D0 52                          push dx         ; Store remainder (digit) on stack
+   334 000002D1 41                          inc cx          ; Increment digit count
+   335 000002D2 83F800                      cmp ax, 0       ; Check if AX is 0
+   336 000002D5 75F3                        jnz store_digits ; If not, keep dividing
+   337                                  
+   338                                  draw_score:
+   339 000002D7 0E                          push cs 
+   340 000002D8 1F                          pop ds          ; Set DS to CS
+   341                                  
+   342 000002D9 B402                        mov ah, 02h     ; BIOS function to set cursor position
+   343 000002DB B700                        mov bh, 0       ; Page number
+   344 000002DD B618                        mov dh, 24      ; Row position
+   345 000002DF B208                        mov dl, 8       ; Column position
+   346 000002E1 CD10                        int 10h         ; Move cursor to (24,8)
+   347                                  
+   348                                  print_digits:
+   349 000002E3 5A                          pop dx          ; Retrieve stored digit from stack
+   350 000002E4 80C230                      add dl, 0x30    ; Convert number to ASCII
+   351 000002E7 88D0                        mov al, dl      ; Move ASCII value to AL
+   352 000002E9 B40E                        mov ah, 0Eh     ; BIOS teletype function
+   353 000002EB B700                        mov bh, 0       ; Page number
+   354 000002ED CD10                        int 10h         ; Print character
+   355 000002EF FEC2                        inc dl          ; Move cursor to the right
+   356 000002F1 E2F0                        loop print_digits ; Repeat for next digit
+   357                                  
+   358 000002F3 07                          pop es          ; Restore ES
+   359 000002F4 C3                          ret             ; Return from procedure
+   360                                  bird_body:
+   361 000002F5 0E                          push cs 
+   362 000002F6 1F                          pop ds          ; Set DS to CS
+   363 000002F7 06                          push es         ; Save ES to stack
+   364 000002F8 60                          pusha           ; Save all registers
+   365                                  
+   366 000002F9 BB0C00                      mov bx, 12      ; Height of the bird (number of rows)
+   367 000002FC 8B36[4200]                  mov si, [bird_pos]  ; Load bird's initial position
+   368 00000300 83C612                      add si, 18      ; Move to the right by 18 pixels
+   369 00000303 8936[4000]                  mov word [bird_top_corner], si  ; Store the top corner position
+   370 00000307 83EE12                      sub si, 18      ; Reset position for body drawing
+   371                                  
+   372                                  body:
+   373 0000030A 89F7                        mov di, si      ; Copy position to DI (destination index)
+   374 0000030C B00E                        mov al, 14      ; Bird color (hex 14)
+   375 0000030E B91200                      mov cx, 18      ; Width of the bird
+   376 00000311 F3AA                        rep stosb       ; Fill 18 pixels with bird color
+   377 00000313 83EB01                      sub bx, 1       ; Decrease row counter
+   378 00000316 81C64001                    add si, 320     ; Move to the next row (screen width is 320)
+   379 0000031A 83FB00                      cmp bx, 0       ; Check if all rows are drawn
+   380 0000031D 75EB                        jnz body        ; If not, continue drawing
+   381                                  
+   382 0000031F 57                          push di         ; Save DI before modifying it
+   383 00000320 8B3E[4200]                  mov di, [bird_pos]  ; Reset DI to bird's position
+   384 00000324 81C74806                    add di, 1608    ; Move to the lower part of the bird
+   385 00000328 B0CC                        mov al, 0xCC    ; Special marker color
+   386 0000032A AA                          stosb           ; Store pixel
+   387 0000032B 47                          inc di          ; Move right
+   388 0000032C AA                          stosb           ; Store pixel
+   389 0000032D 47                          inc di          ; Move right
+   390 0000032E AA                          stosb           ; Store pixel
+   391 0000032F 5F                          pop di          ; Restore DI
+   392                                  
+   393 00000330 81EE4001                    sub si, 320     ; Move one row up
+   394 00000334 8936[3C00]                  mov word [bird_bottom_corner], si  ; Store bottom-left corner
+   395 00000338 83C612                      add si, 18      ; Move right
+   396 0000033B 8936[3E00]                  mov word [bird_bottom_corner_end], si  ; Store bottom-right corner
+   397 0000033F 83EE12                      sub si, 18      ; Reset to original position
+   398 00000342 8936[5F00]                  mov [bird_position_holder], si  ; Store bird's current position
+   399                                  
+   400 00000346 61                          popa            ; Restore all registers
+   401 00000347 07                          pop es          ; Restore ES
+   402 00000348 C3                          ret             ; Return from procedure
+   403                                  
+   404                                  defDrawPipe:
+   405 00000349 55                          push bp
+   406 0000034A 89E5                        mov bp, sp       ; Set up stack frame
+   407 0000034C 60                          pusha           ; Save all registers
+   408                                  
+   409 0000034D 8B4E04                      mov cx, [bp+4]  ; Load pipe X position
+   410 00000350 BA0000                      mov dx, 0       ; Reset Y coordinate
+   411 00000353 B40C                        mov ah, 0Ch     ; BIOS function for pixel plotting
+   412 00000355 8B5E06                      mov bx, [bp+6]  ; Load pipe Y position
+   413 00000358 891E[5200]                  mov word [intBottomPipeStart], bx ; Store bottom pipe start position
+   414 0000035C 8306[5200]37                add word [intBottomPipeStart], 55 ; Offset for bottom pipe
+   415 00000361 C706[5000]0000              mov word [boolDrawBottomPipe], 0  ; Reset bottom pipe flag
+   416 00000367 890E[5400]                  mov word [intPipeEndX], cx        ; Store pipe's end X coordinate
+   417 0000036B 8306[5400]28                add word [intPipeEndX], 40        ; Pipe width (40 pixels)
+   418                                  
+   419 00000370 837E0801                    cmp word [bp+8], 1   ; Check if it's a top pipe
+   420 00000374 741F                        je drawTopPipe       ; If so, jump to draw top pipe
+   421                                  
+   422 00000376 833E[4C00]00                cmp word [leftOverPipeWidth], 0  ; Check leftover pipe width
+   423 0000037B 7647                        jbe endDrawPipe                   ; If zero or negative, skip drawing
+   424                                  
+   425 0000037D 8B0E[4C00]                  mov cx, [leftOverPipeWidth]  ; Load leftover width
+   426 00000381 890E[5400]                  mov word [intPipeEndX], cx   ; Store new pipe end position
+   427 00000385 B92800                      mov cx, 40                   ; Reset CX for width calculation
+   428 00000388 2B0E[4C00]                  sub cx, [leftOverPipeWidth]  ; Adjust width
+   429 0000038C 01CB                        add bx, cx                   ; Adjust Y position
+   430 0000038E B90000                      mov cx, 0                     ; Reset CX
+   431 00000391 FF0E[4C00]                  dec word [leftOverPipeWidth]  ; Decrease leftover width
+   432                                  
+   433                                  drawTopPipe:
+   434 00000395 B002                        mov al, 2   ; Set pipe color
+   435                                  
+   436                                  colorSelected:
+   437 00000397 81F94001                    cmp cx, 320   ; Check if we are out of bounds
+   438 0000039B 7327                        jae endDrawPipe  ; If CX >= 320, exit
+   439 0000039D 83F900                      cmp cx, 0
+   440 000003A0 7222                        jb endDrawPipe   ; If CX < 0, exit
+   441 000003A2 CD10                        int 10h          ; Draw pixel
+   442                                  
+   443                                  skipPipe:
+   444 000003A4 42                          inc dx
+   445 000003A5 3B5606                      cmp dx, [bp+6]      ; Check if we've reached pipe height
+   446 000003A8 76EB                        jbe drawTopPipe     ; Continue drawing if not
+   447                                  
+   448 000003AA 3B16[5200]                  cmp dx, [intBottomPipeStart] ; Check bottom pipe start
+   449 000003AE 7703                        ja notSkip            ; If past it, adjust position
+   450 000003B0 83C236                      add dx, 54           ; Skip a section of pipe
+   451                                  
+   452                                  notSkip:
+   453 000003B3 81FAB400                    cmp dx, 180
+   454 000003B7 72DC                        jb drawTopPipe   ; Continue drawing within limits
+   455                                  
+   456 000003B9 41                          inc cx
+   457 000003BA BA0000                      mov dx, 0
+   458 000003BD 43                          inc bx
+   459 000003BE 3B0E[5400]                  cmp cx, [intPipeEndX] ; Check if pipe width is drawn
+   460 000003C2 72D1                        jb drawTopPipe
+   461                                  
+   462                                  endDrawPipe:
+   463 000003C4 61                          popa 
+   464 000003C5 5D                          pop bp
+   465 000003C6 C20600                      ret 6   ; Clean up stack (returning from function)
+   466                                  
+   467                                  
+   468                                  ; ---------------------------------
+   469                                  ; Function to move pipe left
+   470                                  ; ---------------------------------
+   471                                  movePipe:
+   472 000003C9 0E                          push cs 
+   473 000003CA 1F                          pop ds
+   474 000003CB 55                          push bp
+   475 000003CC 89E5                        mov bp, sp
+   476 000003CE 60                          pusha
+   477                                  
+   478 000003CF FF06[3100]                  inc word [rect_mov_count]   ; Increase movement counter
+   479 000003D3 813E[3100]4501              cmp word [rect_mov_count], 325  ; If reached max, update score
+   480 000003D9 7402                        je incc
+   481 000003DB 750D                        jne noincc
+   482                                  
+   483                                  incc:
+   484 000003DD C706[3100]0000              mov word [rect_mov_count], 0  ; Reset movement counter
+   485 000003E3 FF06[6100]                  inc word [score]             ; Increase score
+   486 000003E7 E8C8FE                      call cal_dig                 ; Update displayed score
+   487                                  
+   488                                  noincc:
+   489 000003EA 8B5E04                      mov bx, [bp+4]   ; Load pipe X position
+   490 000003ED FF0F                        dec word [bx]    ; Move pipe left by 1 pixel
+   491 000003EF 8B0F                        mov cx, [bx]     ; Copy new X position
+   492 000003F1 83C129                      add cx, 41       ; Calculate rightmost X boundary
+   493 000003F4 C706[5800]0000              mov word [boolAdjusted], 0  ; Reset adjustment flag
+   494                                  
+   495 000003FA 81F94001                    cmp cx, 320
+   496 000003FE 7D02                        jge adjustX    ; If pipe reaches the left, reset position
+   497 00000400 EB0A                        jmp continueDrawing
+   498                                  
+   499                                  adjustX:
+   500 00000402 81E94001                    sub word cx, 320
+   501 00000406 C706[5800]0100              mov word [boolAdjusted], 1  ; Flag that X was adjusted
+   502                                  
+   503                                  continueDrawing:
+   504 0000040C BA0000                      mov dx, 0
+   505 0000040F B035                        mov al, 35h  ; Pipe color
+   506 00000411 B40C                        mov ah, 0Ch  ; BIOS function to draw pixel
+   507 00000413 8B7606                      mov si, [bp+6]  ; Load pipe Y position
+   508                                  
+   509                                  drawLastColumnSky:
+   510 00000416 CD10                        int 10h        ; Draw sky pixel (erasing previous pipe position)
+   511 00000418 3E3B14                      cmp dx, [ds:si]
+   512 0000041B 7516                        jne continueDrawingSky  ; Continue if not hitting a pipe boundary
+   513                                  
+   514 0000041D 833E[5800]00                cmp word [boolAdjusted], 0
+   515 00000422 7405                        je notCheckForadjusted
+   516                                  
+   517 00000424 83F929                      cmp cx, 41
+   518 00000427 7711                        ja skipSkyColumn
+   519                                  
+   520                                  notCheckForadjusted:
+   521 00000429 83F929                      cmp cx, 41
+   522 0000042C 7205                        jb continueDrawingSky
+   523                                  
+   524 0000042E 83C237                      add dx, 55  ; Skip pipe gap
+   525 00000431 EBE3                        jmp drawLastColumnSky
+   526                                  
+   527                                  continueDrawingSky:
+   528 00000433 42                          inc dx
+   529 00000434 81FAB400                    cmp dx, 180
+   530 00000438 72DC                        jb drawLastColumnSky
+   531                                  
+   532                                  skipSkyColumn:
+   533 0000043A 83E929                      sub cx, 41
+   534 0000043D 83F900                      cmp cx, 0
+   535 00000440 7524                        jne endMovePipe
+   536                                  
+   537 00000442 833E[4400]00                cmp word [pipesX], 0
+   538 00000447 7506                        jne endMovePipeContinue
+   539                                  
+   540 00000449 C706[5A00]0100              mov word [boolFirstPipe], 1  ; Set first pipe flag
+   541                                  
+   542                                  endMovePipeContinue:
+   543 0000044F C706[4C00]2800              mov word [leftOverPipeWidth], 40
+   544 00000455 3E8B0C                      mov cx, [ds:si]
+   545 00000458 890E[4E00]                  mov word [leftOverPipeY], cx
+   546 0000045C C7074001                    mov word [bx], 320   ; Reset pipe position to rightmost part of screen
+   547                                  
+   548 00000460 FF7606                      push word [bp+6]
+   549 00000463 E80500                      call generateRandomNumber   ; Get a new random Y position for the pipe
+   550                                  
+   551                                  endMovePipe:
+   552 00000466 61                          popa
+   553 00000467 5D                          pop bp
+   554 00000468 C20200                      ret 2
+   555                                  
+   556                                  generateRandomNumber:
+   557 0000046B 0E                          push cs 
+   558 0000046C 1F                          pop ds
+   559 0000046D 55                          push bp
+   560 0000046E 89E5                        mov bp, sp
+   561 00000470 60                          pusha
+   562                                  
+   563 00000471 B400                        mov ah, 0
+   564 00000473 CD1A                        int 1Ah  ; BIOS function to get system timer (for randomness)
+   565 00000475 89D0                        mov ax, dx
+   566 00000477 BB3C00                      mov bx, 60  ; Limit range of random number
+   567 0000047A BA0000                      mov dx, 0
+   568 0000047D F7F3                        div bx      ; AX / 60, remainder in DX (random value)
+   569                                      
+   570 0000047F 8B5E04                      mov bx, [bp+4]  ; Get pointer to store random value
+   571 00000482 8917                        mov word [bx], dx  ; Store random number
+   572 00000484 830714                      add word [bx], 20  ; Add offset to ensure reasonable height
+   573                                  
+   574 00000487 61                          popa
+   575 00000488 5D                          pop bp
+   576 00000489 C20200                      ret 2  ; Clean up stack
+   577                                  ; ---------------------------------
+   578                                  ; Function to draw the ground with a gradient effect
+   579                                  ; ---------------------------------
+   580                                  ground:
+   581 0000048C 0E                          push cs 
+   582 0000048D 1F                          pop ds
+   583 0000048E 06                          push es
+   584                                  
+   585 0000048F BF00E1                      mov di, 57600            ; Start at the bottom of the screen (Y = 180)
+   586 00000492 B9800C                      mov cx, 320 * 10         ; Draw 10 rows of pixels (ground height)
+   587 00000495 BB0100                      mov bx, 1                ; Index for gradient shades
+   588                                  
+   589                                  .draw_gradient:
+   590 00000498 8A87[3300]                  mov al, [green_shades+bx]  ; Get the green shade color
+   591 0000049C AA                          stosb                     ; Store the pixel color in video memory
+   592 0000049D 43                          inc bx                    ; Move to the next shade
+   593                                  
+   594 0000049E 83FB04                      cmp bx, 4                 ; Loop gradient colors (cycle through shades)
+   595 000004A1 7503                        jne .continue_gradient
+   596 000004A3 BB0100                      mov bx, 1                 ; Reset color cycling
+   597                                  
+   598                                  .continue_gradient:
+   599 000004A6 E2F0                        loop .draw_gradient       ; Repeat for the entire ground area
+   600                                  
+   601 000004A8 BF80ED                      mov di, 60800             ; Move further down for solid color area
+   602 000004AB B006                        mov al, 6                 ; Set a solid dark green color
+   603 000004AD B9800C                      mov cx, 320 * 10          ; Draw 10 more rows
+   604 000004B0 F3AA                        rep stosb                 ; Fill the memory with the color
+   605                                  
+   606 000004B2 07                          pop es
+   607 000004B3 C3                          ret
+   608                                  
+   609                                  
+   610                                  ; ---------------------------------
+   611                                  ; Simple delay function (short wait time)
+   612                                  ; ---------------------------------
+   613                                  delay:
+   614 000004B4 0E                          push cs 
+   615 000004B5 1F                          pop ds
+   616 000004B6 60                          pusha
+   617 000004B7 B900FA                      mov cx, 64000     ; Arbitrary delay loop counter
+   618                                  
+   619                                  delay1:
+   620 000004BA E2FE                        loop delay1       ; Loop until CX becomes zero
+   621                                  
+   622 000004BC 61                          popa
+   623 000004BD C3                          ret
+   624                                  
+   625                                  
+   626                                  ; ---------------------------------
+   627                                  ; Function to erase the bird from the screen
+   628                                  ; ---------------------------------
+   629                                  remover_bird:
+   630 000004BE 0E                          push cs 
+   631 000004BF 1F                          pop ds
+   632 000004C0 60                          pusha
+   633 000004C1 89F7                        mov di, si        ; Load bird's current position
+   634 000004C3 B035                        mov al, 35h       ; Sky color (to erase bird)
+   635 000004C5 B91200                      mov cx, 18        ; Bird width
+   636                                  
+   637 000004C8 F3AA                        rep stosb         ; Fill bird area with sky color
+   638                                  
+   639 000004CA 61                          popa
+   640 000004CB C3                          ret
+   641                                  
+   642                                  
+   643                                  ; ---------------------------------
+   644                                  ; Function to handle bird falling mechanics
+   645                                  ; ---------------------------------
+   646                                  bird_falling:
+   647 000004CC 0E                          push cs 
+   648 000004CD 1F                          pop ds
+   649 000004CE 60                          pusha
+   650 000004CF B800A0                      mov ax, 0xA000  ; Load video memory segment
+   651 000004D2 8EC0                        mov es, ax
+   652                                  
+   653 000004D4 57                          push di
+   654 000004D5 8B3E[4000]                  mov di, [bird_top_corner]   ; Check top collision with pipes
+   655 000004D9 26803D02                    cmp byte [es:di], 2
+   656 000004DD 742B                        je exit_game_1              ; If collision detected, exit
+   657                                  
+   658 000004DF 8B3E[3C00]                  mov di, [bird_bottom_corner]   ; Check bottom collision with pipes
+   659 000004E3 2680BD400102                cmp byte [es:di+320], 2
+   660 000004E9 741F                        je exit_game_1
+   661                                  
+   662 000004EB 8B3E[3E00]                  mov di, [bird_bottom_corner_end]  ; Check further below for collision
+   663 000004EF 2680BD400102                cmp byte [es:di+320], 2
+   664 000004F5 7413                        je exit_game_1
+   665                                  
+   666 000004F7 5F                          pop di  ; Restore DI (bird's position)
+   667                                  
+   668 000004F8 8B36[4200]                  mov si, word [bird_pos]  ; Get current bird position
+   669 000004FC E8BFFF                      call remover_bird        ; Remove bird from old position
+   670                                  
+   671 000004FF 8106[4200]4001              add word [bird_pos], 320  ; Move bird down by 1 row (next screen line)
+   672 00000505 E8EDFD                      call bird_body            ; Redraw bird in new position
+   673                                  
+   674 00000508 EB07                        jmp outr  ; Continue normal execution
+   675                                  
+   676                                  exit_game_1:
+   677 0000050A C706[5600]0100              mov word [collision_detected], 1  ; Set game over flag
+   678                                  
+   679 00000510 5F                      pop di  ; Restore DI
+   680                                  
+   681                                  outr:
+   682 00000511 61                          popa
+   683 00000512 C3                          ret
+   684                                  ; ---------------------------------
+   685                                  ; Function to move the bird upwards
+   686                                  ; ---------------------------------
+   687                                  moving_up:
+   688 00000513 0E                          push cs 
+   689 00000514 1F                          pop ds
+   690 00000515 60                          pusha
+   691                                  
+   692 00000516 B800A0                      mov ax, 0xA000       ; Load video memory segment
+   693 00000519 8EC0                        mov es, ax
+   694                                  
+   695 0000051B 57                          push di
+   696 0000051C 8B3E[4000]                  mov di, [bird_top_corner]  ; Check if top of the bird collides with a pipe
+   697 00000520 2680BDC0FE02                cmp byte [es:di-320], 2
+   698 00000526 7429                        je exit_game_2
+   699                                  
+   700 00000528 8B3E[3E00]                  mov di, [bird_bottom_corner_end] ; Check bottom collision
+   701 0000052C 26803D02                    cmp byte [es:di], 2
+   702 00000530 741F                        je exit_game_2
+   703                                  
+   704 00000532 8B3E[4200]                  mov di, [bird_pos]   ; Check current position collision
+   705 00000536 2680BDC0FE02                cmp byte [es:di-320], 2
+   706 0000053C 7413                        je exit_game_2
+   707                                  
+   708 0000053E 5F                          pop di  ; Restore DI (bird position)
+   709                                  
+   710 0000053F 812E[4200]4001              sub word [bird_pos], 320   ; Move bird up one row (320 pixels)
+   711 00000545 8B36[5F00]                  mov si, [bird_position_holder]
+   712 00000549 E872FF                      call remover_bird          ; Clear the old position
+   713 0000054C E8A6FD                      call bird_body             ; Redraw the bird in the new position
+   714                                  
+   715 0000054F EB07                        jmp outrr  ; Continue normal execution
+   716                                  
+   717                                  exit_game_2:
+   718 00000551 C706[5600]0100              mov word [collision_detected], 1  ; Set game over flag
+   719 00000557 5F                          pop di  ; Restore DI
+   720                                  
+   721                                  outrr:
+   722 00000558 61                          popa
+   723 00000559 C3                          ret
+   724                                  
+   725                                  
+   726                                  ; ---------------------------------
+   727                                  ; Function to simulate bird falling when colliding
+   728                                  ; ---------------------------------
+   729                                  bird_falling_collide:
+   730 0000055A 0E                          push cs 
+   731 0000055B 1F                          pop ds
+   732 0000055C 60                          pusha
+   733                                  
+   734 0000055D 8B36[4200]                  mov si, word [bird_pos]  ; Get current position
+   735 00000561 E85AFF                      call remover_bird        ; Remove bird from old position
+   736                                  
+   737 00000564 8106[4200]4001              add word [bird_pos], 320  ; Move bird down by 1 row
+   738 0000056A E888FD                      call bird_body            ; Redraw bird
+   739                                  
+   740 0000056D 61                          popa
+   741 0000056E C3                          ret
+   742                                  
+   743                                  
+   744                                  ; ---------------------------------
+   745                                  ; Function to remove extra bird pixels (used in collision recovery)
+   746                                  ; ---------------------------------
+   747                                  remover_extra:
+   748 0000056F 0E                          push cs 
+   749 00000570 1F                          pop ds
+   750 00000571 60                          pusha
+   751                                  
+   752 00000572 8B3E[4200]                  mov di, [bird_pos]  ; Get bird's current position
+   753 00000576 B90C00                      mov cx, 12          ; Number of pixels to remove
+   754 00000579 B035                        mov al, 35h         ; Sky color (to erase bird)
+   755                                  
+   756                                  l2:
+   757 0000057B AA                          stosb              ; Store sky color at bird's position
+   758 0000057C 81C73F01                    add di, 319        ; Move to next row (adjust for screen width)
+   759 00000580 E2F9                        loop l2            ; Repeat until all pixels are removed
+   760                                  
+   761 00000582 61                          popa
+   762 00000583 C3                          ret
+   763                                  
+   764                                  
+   765                                  ; ---------------------------------
+   766                                  ; Function to handle extra collision recovery
+   767                                  ; ---------------------------------
+   768                                  collide_extra:
+   769 00000584 0E                          push cs 
+   770 00000585 1F                          pop ds
+   771 00000586 60                          pusha
+   772                                  
+   773                                  l1:
+   774 00000587 E8E5FF                      call remover_extra        ; Remove extra pixels
+   775 0000058A 8306[4200]01                add word [bird_pos], 1    ; Shift bird position slightly
+   776 0000058F E822FF                      call delay
+   777 00000592 E81FFF                      call delay
+   778 00000595 E85DFD                      call bird_body            ; Redraw bird
+   779                                  
+   780 00000598 8B3E[3C00]                  mov di, [bird_bottom_corner]  ; Check if collision is still happening
+   781 0000059C 2680BD400102                cmp byte [es:di+320], 2
+   782 000005A2 74E3                        je l1  ; Keep adjusting position if still colliding
+   783                                  
+   784 000005A4 61                          popa
+   785 000005A5 C3                          ret
+   786                                  
+   787                                  Collider:
+   788 000005A6 B0FD                        mov al, 11111101b    ; Clear bit 1 (Speaker Gate)
+   789 000005A8 E461                        in  al, 61h          ; Read current state of port 61h
+   790 000005AA 24FC                        and al, 11111100b    ; Clear speaker bits
+   791 000005AC E661                        out 61h, al          ; Write back to port 61h
+   792 000005AE B0B6                        mov al, 10110110b    ; Control word: Select Channel 2, Latch Command
+   793 000005B0 E643                        out 43h, al          ; Send control word to PIT command register
+   794 000005B2 B000                        mov al, 0            ; Send initial count low byte
+   795 000005B4 E642                        out 42h, al          ; Write to Channel 2 data port
+   796 000005B6 B000                        mov al, 0            ; Send initial count high byte
+   797 000005B8 E642                        out 42h, al
+   798 000005BA 0E                      push cs 
+   799 000005BB 1F                      pop ds
+   800                                  ; ---------------------------------
+   801                                  ; Function: iteration
+   802                                  ; Handles bird falling and collision detection.
+   803                                  ; ---------------------------------
+   804                                  iteration:
+   805 000005BC 60                          pusha
+   806 000005BD B800A0                      mov ax, 0xA000
+   807 000005C0 8EC0                        mov es, ax
+   808                                  
+   809                                      ; Check for collision on the right side of the bird
+   810 000005C2 8B3E[3E00]                  mov di, [bird_bottom_corner_end]
+   811 000005C6 2680BD3E0102                cmp byte [es:di+318], 2
+   812 000005CC 741D                        je handle_collision
+   813                                  
+   814                                      ; Check for collision directly below the bird
+   815 000005CE 8B3E[3C00]                  mov di, [bird_bottom_corner]
+   816 000005D2 2680BD400102                cmp byte [es:di+320], 2
+   817 000005D8 7411                        je handle_collision
+   818                                  
+   819 000005DA 61                          popa  ; Restore registers
+   820 000005DB E8D6FE                      call delay
+   821 000005DE E879FF                      call bird_falling_collide  ; Move the bird down
+   822                                  
+   823                                      ; Continue loop if bird hasn't reached ground (57600)
+   824 000005E1 813E[3E00]00E1              cmp word [bird_bottom_corner_end], 57600
+   825 000005E7 72D3                        jb iteration
+   826                                  
+   827 000005E9 EB07                        jmp finish_iteration
+   828                                  
+   829                                  handle_collision:
+   830 000005EB E896FF                      call collide_extra
+   831 000005EE 61                          popa
+   832 000005EF E8B4FF                      call Collider
+   833                                  
+   834                                  finish_iteration:
+   835 000005F2 E8BFFE                      call delay
+   836 000005F5 E8BCFE                      call delay
+   837 000005F8 E807FC                      call exit_game
+   838 000005FB C3                          ret
+   839                                  
+   840                                  
+   841                                  ; ---------------------------------
+   842                                  ; Function: HandleKeyPress
+   843                                  ; Handles user key input for bird movement.
+   844                                  ; ---------------------------------
+   845                                  HandleKeyPress:
+   846 000005FC 0E                          push cs 
+   847 000005FD 1F                          pop ds
+   848 000005FE 50                          push ax
+   849 000005FF 53                          push bx
+   850 00000600 51                          push cx
+   851 00000601 52                          push dx
+   852                                  
+   853 00000602 B401                        mov ah, 1          ; Check if a key is pressed
+   854 00000604 CD16                        int 0x16
+   855 00000606 7442                        jz no_key_pressed  ; If no key is pressed, handle falling
+   856                                  
+   857 00000608 B400                        mov ah, 0          ; Read the key press
+   858 0000060A CD16                        int 0x16
+   859                                  
+   860 0000060C 80FC01                      cmp ah, 0x01       ; ESC key pressed?
+   861 0000060F 740C                        je exit_game_press
+   862                                  
+   863 00000611 80FC48                      cmp ah, 0x48       ; Up arrow key?
+   864 00000614 740C                        je handle_up
+   865                                  
+   866 00000616 80FCC8                      cmp ah, 0xC8       ; Key release event?
+   867 00000619 7418                        je handle_release
+   868                                  
+   869 0000061B EB2D                        jmp no_key_pressed ; Default case, continue as normal
+   870                                  
+   871                                  exit_game_press:
+   872 0000061D E8A0FB                      call ShowExitConfirmation
+   873 00000620 EB2B                        jmp exit_HandleKeyPress
+   874                                  
+   875                                  handle_up:
+   876 00000622 C706[7200]0100              mov word [is_flapping], 1  
+   877 00000628 C706[6500]0000              mov word [tickcount], 0    
+   878 0000062E E8E2FE                      call moving_up             
+   879 00000631 EB1A                        jmp exit_HandleKeyPress
+   880                                  
+   881                                  handle_release:
+   882 00000633 803E[7100]01                cmp byte [timer_hooked], 1 ; If timer is already hooked, skip
+   883 00000638 7413                        je exit_HandleKeyPress
+   884 0000063A C606[7100]01                mov byte [timer_hooked], 1 
+   885 0000063F E81000                      call hook_timer            
+   886 00000642 C706[7200]0000              mov word [is_flapping], 0  
+   887 00000648 EB03                        jmp exit_HandleKeyPress
+   888                                  
+   889                                  no_key_pressed:
+   890 0000064A E87FFE                      call bird_falling
+   891                                  
+   892                                  exit_HandleKeyPress:
+   893 0000064D 5A                          pop dx
+   894 0000064E 59                          pop cx
+   895 0000064F 5B                          pop bx
+   896 00000650 58                          pop ax
+   897 00000651 C3                          ret
+   898                                  ; ---------------------------------
+   899                                  ; Function: hook_timer
+   900                                  ; Hooks a custom timer interrupt handler.
+   901                                  ; ---------------------------------
+   902                                  hook_timer:
+   903 00000652 0E                          push cs 
+   904 00000653 1F                          pop ds
+   905 00000654 FA                          cli                      ; Disable interrupts while modifying the IVT
+   906 00000655 1E                          push ds
+   907                                  
+   908 00000656 31C0                        xor ax, ax
+   909 00000658 8EC0                        mov es, ax               ; Point ES to IVT (Interrupt Vector Table)
+   910                                  
+   911                                      ; Save the old timer interrupt vector (INT 8)
+   912 0000065A 26A12000                    mov ax, word [es:8*4]    ; Lower 16 bits of the original ISR
+   913 0000065E A3[6700]                    mov word [old_timer], ax
+   914                                  
+   915 00000661 26A12200                    mov ax, word [es:8*4+2]  ; Upper 16 bits (segment) of the original ISR
+   916 00000665 A3[6900]                    mov word [old_timer+2], ax
+   917                                  
+   918                                      ; Set the new timer interrupt handler
+   919 00000668 A1[6F00]                    mov ax, [delay_threshold]
+   920 0000066B 26C7062000[7A06]            mov word [es:8*4], timr  ; Set offset of new handler
+   921 00000672 268C0E2200                  mov word [es:8*4+2], cs  ; Set segment of new handler
+   922                                  
+   923 00000677 1F                          pop ds
+   924 00000678 FB                          sti                      ; Re-enable interrupts
+   925 00000679 C3                          ret
+   926                                  
+   927                                  
+   928                                  ; ---------------------------------
+   929                                  ; Function: timr (Timer Interrupt Service Routine)
+   930                                  ; Custom interrupt handler that makes the bird fall periodically.
+   931                                  ; ---------------------------------
+   932                                  timr:
+   933 0000067A 0E                          push cs 
+   934 0000067B 1F                          pop ds
+   935 0000067C 50                          push ax
+   936 0000067D 53                          push bx
+   937 0000067E 51                          push cx
+   938 0000067F 52                          push dx
+   939                                  
+   940 00000680 FF06[6500]                  inc word [tickcount]        ; Increment tick count
+   941 00000684 3906[6500]                  cmp word [tickcount], ax    ; Compare with delay threshold
+   942 00000688 7511                        jne end_timer               ; If not reached, exit
+   943                                  
+   944 0000068A C706[6500]0000              mov word [tickcount], 0     ; Reset tick counter
+   945 00000690 E839FE                      call bird_falling           ; Apply gravity effect on bird
+   946 00000693 C606[7100]00                mov byte [timer_hooked], 0  ; Mark timer as unhooked
+   947 00000698 E80900                      call unhook_timer           ; Restore original timer ISR
+   948                                  
+   949                                  end_timer:
+   950 0000069B B020                        mov al, 0x20
+   951 0000069D E620                        out 0x20, al                ; Send EOI (End of Interrupt) to PIC
+   952 0000069F 5A                          pop dx
+   953 000006A0 59                          pop cx
+   954 000006A1 5B                          pop bx
+   955 000006A2 58                          pop ax
+   956 000006A3 CF                          iret                        ; Return from interrupt
+   957                                  
+   958                                  
+   959                                  ; ---------------------------------
+   960                                  ; Function: unhook_timer
+   961                                  ; Restores the original timer interrupt handler.
+   962                                  ; ---------------------------------
+   963                                  unhook_timer:
+   964 000006A4 0E                          push cs 
+   965 000006A5 1F                          pop ds
+   966 000006A6 FA                          cli                        ; Disable interrupts while modifying IVT
+   967 000006A7 1E                          push ds
+   968                                  
+   969 000006A8 31C0                        xor ax, ax
+   970 000006AA 8EC0                        mov es, ax                 ; Point ES to IVT
+   971                                  
+   972                                      ; Restore original timer interrupt vector
+   973 000006AC A1[6700]                    mov ax, word [old_timer]
+   974 000006AF 26A32000                    mov word [es:8*4], ax
+   975                                  
+   976 000006B3 A1[6900]                    mov ax, word [old_timer+2]
+   977 000006B6 26A32200                    mov word [es:8*4+2], ax
+   978                                  
+   979 000006BA 1F                          pop ds
+   980 000006BB FB                          sti                        ; Re-enable interrupts
+   981 000006BC C3                          ret
+   982                                  
+   983                                  ground_mover:
+   984 000006BD 0E                          push cs 
+   985 000006BE 1F                          pop ds
+   986 000006BF 60                          pusha                      ; Save all registers
+   987 000006C0 1E                          push ds
+   988 000006C1 06                          push es
+   989                                  
+   990 000006C2 B800A0                      mov ax, 0xA000
+   991 000006C5 8ED8                        mov ds, ax                 ; Set DS to video memory
+   992 000006C7 BF00E1                      mov di, 57600              ; Start position of ground
+   993 000006CA BE02E1                      mov si, 57602              ; Offset by 2 pixels for movement
+   994 000006CD B97E0C                      mov cx, 3198               ; Number of pixels to move
+   995                                  
+   996 000006D0 F3A4                        rep movsb                  ; Move bytes (shifting ground pixels left)
+   997                                  
+   998 000006D2 07                          pop es
+   999 000006D3 1F                          pop ds
+  1000 000006D4 61                          popa                       ; Restore all registers
+  1001 000006D5 C3                          ret
+  1002                                  
+  1003                                  PrintStartScreen:
+  1004 000006D6 E88AFB                   call upper_part  
+  1005 000006D9 E895FB                   call medium_part
+  1006 000006DC E8A1FB                   call lower_part
+  1007 000006DF E813FC                   call bird_body
+  1008 000006E2 E8A7FD                   call ground
+  1009 000006E5 C3                       ret
+  1010                                  
+  1011                                  anime:
+  1012 000006E6 E8A6FB                  	call sscore
+  1013                                  
+  1014                                  main_loop:
+  1015 000006E9 E8C8FD                  	call delay
+  1016 000006EC E8C5FD                  	call delay
+  1017 000006EF E80AFF                      call HandleKeyPress 
+  1018 000006F2 E8A1FA                  	call collision
+  1019 000006F5 833E[5600]01            	cmp word[collision_detected],1
+  1020 000006FA 0F84A8FE                	je Collider
+  1021 000006FE C706[5600]0000          	mov word[collision_detected],0
+  1022                                  continue_loop:
+  1023 00000704 B800A0                  mov ax,0xA000
+  1024 00000707 8ED8                    mov ds,ax
+  1025 00000709 68[4800]                    push pipesY ; y-coordinate address of pipe
+  1026 0000070C 68[4400]                    push pipesX ; x-coordinate address of pipe    
+  1027 0000070F E8B7FC                      call movePipe
+  1028                                  
+  1029 00000712 68[4A00]                    push pipesY+2 ; y-coordinate address of pipe
+  1030 00000715 68[4600]                    push pipesX+2 ; x-coordinate address of pipe
+  1031 00000718 E8AEFC                      call movePipe
+  1032 0000071B 6A01                        push 1
+  1033 0000071D FF36[4800]                  push word [pipesY] ; x-coordinate of pipe
+  1034 00000721 FF36[4400]                  push word [pipesX] ; y-coordinate of pipe
+  1035 00000725 E821FC                      call defDrawPipe
+  1036 00000728 6A01                        push 1
+  1037 0000072A FF36[4A00]                  push word [pipesY+2] ; x-coordinate of pipe
+  1038 0000072E FF36[4600]                  push word [pipesX+2] ; y-coordinate of pipe
+  1039 00000732 E814FC                      call defDrawPipe
+  1040 00000735 6A00                        push 0
+  1041 00000737 FF36[4E00]                  push word [leftOverPipeY]
+  1042 0000073B 6A00                        push 0
+  1043 0000073D E809FC                      call defDrawPipe
+  1044 00000740 E87AFF                  	call ground_mover
+  1045                                  		;call music
+  1046 00000743 EBA4                    jmp main_loop ; Repeat the main loop
+  1047 00000745 C3                      	ret
+  1048                                  sound:
+  1049 00000746 60                          pusha                       ; Save all general-purpose registers
+  1050 00000747 1E                          push ds                     ; Save DS
+  1051 00000748 06                          push es                     ; Save ES
+  1052 00000749 16                          push ss                     ; Save SS
+  1053 0000074A B800A0                      mov ax, 0xA000              ; Video memory segment
+  1054 0000074D 8EC0                        mov es, ax                  ; Use ES for potential screen updates (if needed)
+  1055                                  
+  1056                                  infinite_sound_loop:
+  1057 0000074F B0B6                        mov al, 182                 ; Command to set frequency mode
+  1058 00000751 E643                        out 43h, al
+  1059 00000753 BBDC34                      mov bx, 1193180             ; Base frequency of 1.19318 MHz
+  1059          ******************       warning: word data exceeds bounds [-w+number-overflow]
+  1060 00000756 F7F3                        div bx                      ; Calculate divisor for desired frequency
+  1061 00000758 E642                        out 42h, al                 ; Low byte of divisor to timer
+  1062 0000075A 88E0                        mov al, ah
+  1063 0000075C E642                        out 42h, al                 ; High byte of divisor to timer
+  1064                                  
+  1065                                      ; Enable the speaker
+  1066 0000075E E461                        in al, 61h                  ; Read speaker control register
+  1067 00000760 0C03                        or al, 00000011b            ; Enable speaker
+  1068 00000762 E661                        out 61h, al
+  1069                                  
+  1070                                      ; Optional delay or loop (minimal)
+  1071 00000764 90                          nop                         ; Use NOP or a small delay instead of an infinite loop
+  1072 00000765 90                          nop
+  1073                                  
+  1074                                      ; Disable the speaker
+  1075 00000766 E461                        in al, 61h
+  1076 00000768 24FC                        and al, 11111100b           ; Disable speaker
+  1077 0000076A E661                        out 61h, al
+  1078 0000076C EBE1                        jmp infinite_sound_loop
+  1079                                  
+  1080                                  sound_exit:
+  1081 0000076E 17                          pop ss                      ; Restore SS
+  1082 0000076F 07                          pop es                      ; Restore ES
+  1083 00000770 1F                          pop ds                      ; Restore DS
+  1084 00000771 61                          popa                        ; Restore all general-purpose registers
+  1085 00000772 C3                          ret                         ; Return to caller
+  1086                                  prrint:
+  1087 00000773 FF06[6100]              inc word [score]
+  1088 00000777 E8CCFF                  call sound
+  1089 0000077A EBF7                    jmp prrint
+  1090                                  start:
+  1091                                  
+  1092 0000077C E8DBF9                   call DisplayIntroduction 
+  1093 0000077F B400                     mov ah,0
+  1094 00000781 CD16                     int 16h
+  1095 00000783 80FC01                   cmp ah,0x01
+  1096 00000786 0F8478FA                 je exit_game
+  1097 0000078A E849FF                   call PrintStartScreen 
+  1098 0000078D 31C0                         xor ax, ax
+  1099 0000078F 8EC0                         mov es, ax
+  1100 00000791 FA                           cli
+  1101 00000792 26A12000                	 mov ax, word[es:8*4]
+  1102 00000796 A3[6B00]                	 mov word [oldtimer],ax
+  1103 00000799 26A12200                	 mov ax,word[es:8*4+2]
+  1104 0000079D A3[6D00]                	 mov word[oldtimer+2],ax
+  1105 000007A0 26C7062000[E107]             mov word [es:8*4], timer
+  1106 000007A7 268C0E2200                   mov [es:8*4+2], cs
+  1107 000007AC FB                           sti
+  1108                                  
+  1109                                  ll1:
+  1110 000007AD C706[4501][4607]             mov word [pcb+10+4], sound         ; Game logic thread
+  1111 000007B3 8C0E[4701]                   mov [pcb+10+6], cs
+  1112 000007B7 C706[4901]0002               mov word [pcb+10+8], 0x0200    
+  1113 000007BD C706[4F01][E606]             mov word [pcb+20+4], anime  ; Music thread
+  1114 000007C3 8C0E[5101]                   mov [pcb+20+6], cs
+  1115 000007C7 C706[5301]0002               mov word [pcb+20+8], 0x0200         ; Flags
+  1116 000007CD C706[4B01]0000               mov word [current], 0               ; Start with the first task
+  1117 000007D3 EBD8                    	 jmp ll1
+  1118                                  	 ll2:
+  1119 000007D5 833E[6300]01            	 cmp word[game_end] ,1
+  1120 000007DA 7400                    	 je exxxxit
+  1121                                  	 exxxxit:
+  1122 000007DC B8004C                   mov ax, 0x4C00
+  1123 000007DF CD21                    int 0x21
+  1124                                  timer:
+  1125 000007E1 0E                      	push cs 
+  1126 000007E2 1F                      pop ds
+  1127 000007E3 50                        push ax
+  1128 000007E4 53                       push bx
+  1129 000007E5 2E8A1E[4B01]             mov bl, [cs:current] ; read index of current task ... bl
+  1130 000007EA B80A00                   mov ax, 10 ; space used by
+  1131 000007ED F6E3                     mul bl ; multiply to get
+  1132 000007EF 89C3                     mov bx, ax ; load start of
+  1133 000007F1 58                       pop ax ; read origina
+  1134                                  
+  1135 000007F2 2E8987[3901]             mov [cs:pcb+bx+2], ax ; space for current task's BX
+  1136 000007F7 58                       pop ax ; read original
+  1137 000007F8 2E8987[3701]             mov [cs:pcb+bx+0], ax ; space for current task's AX
+  1138 000007FD 58                       pop ax ; read original
+  1139 000007FE 2E8987[3B01]             mov [cs:pcb+bx+4], ax ; space for current task
+  1140 00000803 58                       pop ax ; read original
+  1141 00000804 2E8987[3D01]             mov [cs:pcb+bx+6], ax ; space for current task
+  1142 00000809 58                       pop ax ; read original
+  1143 0000080A 2E8987[3F01]             mov [cs:pcb+bx+8], ax ; space for current task
+  1144 0000080F 2EFE06[4B01]             inc byte [cs:current] ; update current task index...1
+  1145 00000814 2E803E[4B01]03           cmp byte [cs:current], 3; is task index out of range
+  1146 0000081A 7506                     jne skipreset ; no, proceed
+  1147 0000081C 2EC606[4B01]00           mov byte [cs:current], 0 ; yes, reset to task 0
+  1148                                   skipreset: 
+  1149 00000822 2E8A1E[4B01]             mov bl, [cs:current] ; read index of current task
+  1150 00000827 B80A00                   mov ax, 10 ; space used by
+  1151 0000082A F6E3                     mul bl ; multiply to get
+  1152 0000082C 89C3                     mov bx, ax ; load start of
+  1153 0000082E B020                     mov al, 0x20
+  1154 00000830 E620                     out 0x20, al ; send EOI to PIC
+  1155 00000832 2EFFB7[3F01]             push word [cs:pcb+bx+8] ; flags of new task...
+  1156 00000837 2EFFB7[3D01]             push word [cs:pcb+bx+6] ; cs of new task ...
+  1157 0000083C 2EFFB7[3B01]             push word [cs:pcb+bx+4] ; ip of new task...
+  1158 00000841 2E8B87[3701]             mov ax, [cs:pcb+bx+0] ; ax of new task...pcb+10+0
+  1159 00000846 2E8B9F[3901]             mov bx, [cs:pcb+bx+2] ; bx of new task...pcb+10+2
+  1160 0000084B CF                       iret ; return to new
